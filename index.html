@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RSA Web Application (CBER-704 Project)</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      margin: 24px;
+      line-height: 1.35;
+    }
+    h1 {
+      margin: 0 0 12px 0;
+    }
+    .hint {
+      color: #444;
+      margin: 6px 0 18px 0;
+      font-size: 0.95rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      max-width: 980px;
+    }
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 14px;
+      background: #fafafa;
+    }
+    .card h2 {
+      font-size: 1.05rem;
+      margin: 0 0 10px 0;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-top: 10px;
+    }
+    input, textarea, button {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 10px;
+      margin-top: 6px;
+      border-radius: 8px;
+      border: 1px solid #cfcfcf;
+      font-size: 1rem;
+      background: #fff;
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    .req {
+      font-size: 0.9rem;
+      color: #555;
+      margin-top: 4px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    button {
+      cursor: pointer;
+      border: none;
+      background: #1f6feb;
+      color: #fff;
+      font-weight: 700;
+    }
+    button.secondary {
+      background: #666;
+    }
+    pre {
+      white-space: pre-wrap;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 14px;
+      background: #fff;
+      margin-top: 16px;
+      max-width: 980px;
+      overflow-x: auto;
+    }
+    .note {
+      font-size: 0.9rem;
+      color: #555;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>RSA Web Application (CBER-704 Project)</h1>
+  <div class="hint">
+    Enter RSA parameters <b>p</b>, <b>q</b>, <b>e</b>. Then enter either a <b>numeric plaintext</b> or a <b>text plaintext</b>.
+    The system will display RSA key generation, encryption, decryption, and verification steps.
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>RSA Parameters</h2>
+
+      <div class="row">
+        <div>
+          <label for="p">Prime number p</label>
+          <input id="p" type="number" value="61" />
+          <div class="req">Requirement: p must be prime and p ≠ q.</div>
+        </div>
+        <div>
+          <label for="q">Prime number q</label>
+          <input id="q" type="number" value="53" />
+          <div class="req">Requirement: q must be prime and p ≠ q.</div>
+        </div>
+        <div>
+          <label for="e">Public exponent e</label>
+          <input id="e" type="number" value="17" />
+          <div class="req">Requirement: 1 &lt; e &lt; φ(n) and gcd(e, φ(n)) = 1.</div>
+        </div>
+      </div>
+
+      <h2 style="margin-top:14px;">Plaintext Input</h2>
+
+      <label for="mNumeric">Numeric plaintext m (optional)</label>
+      <input id="mNumeric" type="number" placeholder="Example: 65" />
+      <div class="req">Requirement: 0 &lt; m &lt; n.</div>
+
+      <label for="mText">Text plaintext (optional)</label>
+      <textarea id="mText" placeholder='Example: HELLO'></textarea>
+      <div class="req">Note: Text mode converts each character to a numeric code before RSA encryption.</div>
+
+      <div class="note">
+        To avoid ambiguity, only one plaintext mode can be used at a time.
+        When text plaintext is entered, numeric plaintext is disabled (and vice versa).
+      </div>
+
+      <div class="actions">
+        <button id="runBtn">Run RSA</button>
+        <button id="clearBtn" class="secondary">Clear Output</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Output</h2>
+      <div class="note">
+        The output is shown in a step-by-step format for RSA computation, encryption, decryption, and verification.
+      </div>
+      <pre id="out"></pre>
+    </div>
+  </div>
+
+  <script>
+    // ---------- Utilities ----------
+    function gcd(a, b) {
+      a = BigInt(a);
+      b = BigInt(b);
+      while (b !== 0n) {
+        const t = a % b;
+        a = b;
+        b = t;
+      }
+      return a < 0n ? -a : a;
+    }
+
+    // Extended Euclidean Algorithm: returns [g, x, y] such that ax + by = g = gcd(a,b)
+    function egcd(a, b) {
+      a = BigInt(a);
+      b = BigInt(b);
+      if (b === 0n) return [a, 1n, 0n];
+      const [g, x1, y1] = egcd(b, a % b);
+      return [g, y1, x1 - (a / b) * y1];
+    }
+
+    // Modular inverse of a modulo m (a^-1 mod m)
+    function modInv(a, m) {
+      const [g, x] = egcd(a, m);
+      if (g !== 1n && g !== -1n) return null;
+      return (x % m + m) % m;
+    }
+
+    // Fast modular exponentiation: base^exp mod mod
+    function modPow(base, exp, mod) {
+      base = BigInt(base) % BigInt(mod);
+      exp = BigInt(exp);
+      mod = BigInt(mod);
+      let result = 1n;
+      while (exp > 0n) {
+        if (exp & 1n) result = (result * base) % mod;
+        base = (base * base) % mod;
+        exp >>= 1n;
+      }
+      return result;
+    }
+
+    // Simple primality test for demo (sufficient for small p, q)
+    function isPrime(num) {
+      num = Number(num);
+      if (!Number.isInteger(num) || num <= 1) return false;
+      if (num === 2) return true;
+      if (num % 2 === 0) return false;
+      const r = Math.floor(Math.sqrt(num));
+      for (let i = 3; i <= r; i += 2) {
+        if (num % i === 0) return false;
+      }
+      return true;
+    }
+
+    // ---------- UI Logic ----------
+    const pEl = document.getElementById("p");
+    const qEl = document.getElementById("q");
+    const eEl = document.getElementById("e");
+    const mNumEl = document.getElementById("mNumeric");
+    const mTextEl = document.getElementById("mText");
+    const outEl = document.getElementById("out");
+
+    function updateModeLock() {
+      const hasNum = mNumEl.value.trim() !== "";
+      const hasText = mTextEl.value.trim() !== "";
+      if (hasText) {
+        mNumEl.disabled = true;
+      } else {
+        mNumEl.disabled = false;
+      }
+      if (hasNum) {
+        mTextEl.disabled = true;
+      } else {
+        mTextEl.disabled = false;
+      }
+    }
+
+    mNumEl.addEventListener("input", updateModeLock);
+    mTextEl.addEventListener("input", updateModeLock);
+
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      outEl.textContent = "";
+    });
+
+    document.getElementById("runBtn").addEventListener("click", () => {
+      outEl.textContent = "";
+      runRSA();
+    });
+
+    function write(line = "") {
+      outEl.textContent += line + "\n";
+    }
+
+    // ---------- Main RSA Flow ----------
+    function runRSA() {
+      const p = Number(pEl.value);
+      const q = Number(qEl.value);
+      const e = Number(eEl.value);
+      const mNumericRaw = mNumEl.value.trim();
+      const mTextRaw = mTextEl.value;
+
+      write("====== RSA Computation Steps ======\n");
+
+      // Step 0
+      write("Step 0: Reading user input");
+      write("  Description: Read p, q, e and plaintext from the interface.");
+      write(`  Input values: p = ${p}, q = ${q}, e = ${e}\n`);
+
+      // Step 1: prime validation
+      write("Step 1: Verify that p and q are prime numbers");
+      write("  Purpose: RSA requires two prime numbers.");
+      if (!isPrime(p) || !isPrime(q)) {
+        write("  Failed: p and/or q is not prime.");
+        return;
+      }
+      if (p === q) {
+        write("  Failed: p must not equal q.");
+        return;
+      }
+      write("  Passed: p and q are valid primes and p ≠ q.\n");
+
+      const n = BigInt(p) * BigInt(q);
+
+      // Step 2: compute n
+      write("Step 2: Compute modulus n = p × q");
+      write("  Purpose: n is used in both the public and private keys.");
+      write(`  Result: n = ${p} × ${q} = ${n}\n`);
+
+      const phi = BigInt(p - 1) * BigInt(q - 1);
+
+      // Step 3: compute phi(n)
+      write("Step 3: Compute Euler's totient φ(n)");
+      write("  Purpose: φ(n) is used to derive valid key exponents.");
+      write(`  Result: φ(n) = ${phi}\n`);
+
+      // Step 4: validate e
+      write("Step 4: Validate public exponent e");
+      write("  Requirements: 1 < e < φ(n), and gcd(e, φ(n)) = 1.");
+      if (!(e > 1 && BigInt(e) < phi)) {
+        write("  Failed: e is not in the valid range.");
+        return;
+      }
+      const g = gcd(BigInt(e), phi);
+      if (g !== 1n) {
+        write(`  Failed: gcd(e, φ(n)) = ${g}, so e is not coprime with φ(n).`);
+        return;
+      }
+      write("  Passed: e is valid.\n");
+
+      // Step 5: compute d
+      write("Step 5: Compute private exponent d");
+      write("  Purpose: d is used to decrypt ciphertext.");
+      const d = modInv(BigInt(e), phi);
+      if (d === null) {
+        write("  Failed: modular inverse does not exist for the given e and φ(n).");
+        return;
+      }
+      write(`  Result: d = ${d}\n`);
+
+      write("Current key pair:");
+      write(`  Public key  (e, n) = (${e}, ${n})`);
+      write(`  Private key (d, n) = (${d}, ${n})\n`);
+
+      // Decide plaintext mode
+      const hasNum = mNumericRaw !== "";
+      const hasText = mTextRaw.trim() !== "";
+
+      if (!hasNum && !hasText) {
+        write("No plaintext provided. Please enter either numeric plaintext or text plaintext.");
+        return;
+      }
+      if (hasNum && hasText) {
+        write("Ambiguous input. Please enter only one plaintext mode (numeric OR text).");
+        return;
+      }
+
+      if (hasText) {
+        runTextMode(mTextRaw, BigInt(e), d, n);
+      } else {
+        runNumericMode(mNumericRaw, BigInt(e), d, n);
+      }
+    }
+
+    function runTextMode(text, e, d, n) {
+      write("================ TEXT PLAINTEXT MODE ================\n");
+
+      // Step 6
+      write("Step 6: Convert text plaintext to numeric character codes");
+      write("  Description: Convert each character into its Unicode (UTF-16) numeric code.");
+      write(`  Original text: "${text.replace(/\n/g, "\\n")}"`);
+
+      const codes = [];
+      for (let i = 0; i < text.length; i++) {
+        codes.push(text.charCodeAt(i));
+      }
+      write(`  Character codes: [${codes.join(", ")}]\n`);
+
+      // Step 7: encryption
+      write("====== Encryption Phase ======\n");
+      write("Step 7: Encrypt character codes using the public key");
+      write("  Description: For each character code mᵢ, compute ciphertext cᵢ = mᵢ^e mod n.");
+      write(`  Input character codes: [${codes.join(", ")}]`);
+
+      const ciphertext = codes.map(m => modPow(BigInt(m), e, n));
+      write(`  Ciphertext array: [${ciphertext.join(", ")}]\n`);
+
+      // Step 8: decryption
+      write("====== Decryption Phase ======\n");
+      write("Step 8: Decrypt ciphertext array using the private key");
+      write("  Description: For each ciphertext cᵢ, compute mᵢ' = cᵢ^d mod n.");
+      write(`  Ciphertext received: [${ciphertext.join(", ")}]`);
+
+      const decryptedCodes = ciphertext.map(c => modPow(c, d, n));
+      write(`  Decrypted character codes: [${decryptedCodes.join(", ")}]\n`);
+
+      // Step 9: codes back to text
+      write("Step 9: Convert decrypted codes back to text");
+      write("  Description: Convert numeric codes back into characters.");
+      const recovered = String.fromCharCode(...decryptedCodes.map(x => Number(x)));
+      write(`  Recovered plaintext: "${recovered.replace(/\n/g, "\\n")}"\n`);
+
+      write("====== Verification ======\n");
+      write("Final check:");
+      write(recovered === text ? "  The decrypted plaintext matches the original text."
+                              : "  The decrypted plaintext does NOT match the original text.");
+    }
+
+    function runNumericMode(mRaw, e, d, n) {
+      write("================ NUMERIC PLAINTEXT MODE ================\n");
+
+      const m = BigInt(mRaw);
+
+      write("Step 6: Read numeric plaintext m");
+      write("  Description: Use the provided integer as plaintext.");
+      write(`  Original m: ${m}\n`);
+
+      // Validate range
+      if (!(m > 0n && m < n)) {
+        write("Failed: Numeric plaintext must satisfy 0 < m < n.");
+        return;
+      }
+
+      // Encryption
+      write("====== Encryption Phase ======\n");
+      write("Step 7: Encrypt numeric plaintext using the public key");
+      write("  Description: Compute ciphertext c = m^e mod n.");
+      const c = modPow(m, e, n);
+      write(`  Ciphertext c: ${c}\n`);
+
+      // Decryption
+      write("====== Decryption Phase ======\n");
+      write("Step 8: Decrypt ciphertext using the private key");
+      write("  Description: Compute m' = c^d mod n.");
+      const m2 = modPow(c, d, n);
+      write(`  Decrypted m': ${m2}\n`);
+
+      write("====== Verification ======\n");
+      write("Final check:");
+      write(m2 === m ? "  The decrypted plaintext matches the original plaintext."
+                     : "  The decrypted plaintext does NOT match the original plaintext.");
+    }
+
+    // Initialize locks
+    updateModeLock();
+  </script>
+</body>
+</html>
